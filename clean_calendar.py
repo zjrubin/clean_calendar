@@ -52,7 +52,7 @@ def handle_authentication() -> Credentials:
 
 def get_calendars(service: Resource) -> List[Dict]:
     calendars = []
-    request = service.calendarList().list(minAccessRole="owner", showHidden=True)
+    request = service.calendarList().list(minAccessRole="writer", showHidden=True)
 
     while request is not None:
         calendars_result = request.execute()
