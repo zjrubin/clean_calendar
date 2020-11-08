@@ -1,12 +1,12 @@
 from __future__ import print_function
 from datetime import datetime, timedelta
-import pickle
-import os.path
-from googleapiclient.discovery import build, Resource
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build, Resource
 from typing import List, Dict
+import os.path
+import pickle
 
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
@@ -16,26 +16,16 @@ def main():
     """Shows basic usage of the Google Calendar API.
     Prints the start and name of the next 10 events on the user's calendar.
     """
-    # TODO: delete reminders
     creds = handle_authentication()
 
     service = build("calendar", "v3", credentials=creds)
 
-    # now = datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
+    calendars = get_calendars(service)
 
-    # Call the Calendar API
-    events = get_old_events(service=service)
+    for calendar in calendars:
+        events = get_old_events(service=service, calendar_id=calendar["id"])
 
-    for event in events:
-        start = event["start"].get("dateTime", event["start"].get("date"))
-        print(start, event.get("summary"))
-        service.events().delete(calendarId="primary", eventId=event["id"]).execute()
-
-    if not events:
-        print("No old events found.")
-    for event in events:
-        start = event["start"].get("dateTime", event["start"].get("date"))
-        print(start, event.get("summary"))
+        delete_events(service=service, calendar=calendar, events=events)
 
 
 def handle_authentication() -> Credentials:
@@ -60,12 +50,24 @@ def handle_authentication() -> Credentials:
     return creds
 
 
-def get_old_events(service: Resource) -> List[Dict]:
+def get_calendars(service: Resource) -> List[Dict]:
+    calendars = []
+    request = service.calendarList().list(minAccessRole="owner", showHidden=True)
+
+    while request is not None:
+        calendars_result = request.execute()
+        calendars.extend(calendars_result.get("items", []))
+        request = service.calendarList().list_next(request, calendars_result)
+
+    return calendars
+
+
+def get_old_events(service: Resource, calendar_id: str) -> List[Dict]:
     one_month_ago = get_time_n_days_ago(30).isoformat() + "Z"  # 'Z' indicates UTC time
 
     events = []
     request = service.events().list(
-        calendarId="primary",
+        calendarId=calendar_id,
         timeMax=one_month_ago,
         singleEvents=True,
         orderBy="startTime",
@@ -79,7 +81,20 @@ def get_old_events(service: Resource) -> List[Dict]:
     return events
 
 
+def delete_events(service: Resource, calendar: List[Dict], events: List[Dict]) -> None:
+    print(f"Deleting events in calendar: {calendar['summary']}")
+    for event in events:
+        service.events().delete(
+            calendarId=calendar["id"], eventId=event["id"]
+        ).execute()
+
+        start = event["start"].get("dateTime", event["start"].get("date"))
+        print(f"Deleted: ({start}) - {event.get('summary')}")
+    print(f"Finished deleting events in calendar: {calendar['summary']}\n")
+
+
 def get_time_n_days_ago(n: int) -> datetime:
+    # now = datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
     return datetime.now() - timedelta(days=n)
 
 
